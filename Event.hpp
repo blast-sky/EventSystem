@@ -1,14 +1,22 @@
 #pragma once
 #include <list>
+#include <string>
 
 template<class ...TArgs>
 class IInvocable
 {
 public:
 	virtual void invoke(TArgs&&...) = 0;
-	virtual size_t getHash() const = 0;
-	virtual ~IInvocable() {};
+	virtual const void* getObjectPtr() const = 0;
+	virtual const std::string getFunctionPtr() const = 0;
 };
+
+template<class ...TArgs>
+bool operator ==(const IInvocable<TArgs...>& first, const IInvocable<TArgs...>& second)
+{
+	return first.getFunctionPtr() == second.getFunctionPtr() &&
+		second.getObjectPtr() == second.getObjectPtr();
+}
 
 template<class ...TArgs>
 class InvocableStaticFunction : public IInvocable<TArgs...>
@@ -20,13 +28,14 @@ public:
 		_function(function)
 	{	};
 
-	size_t getHash() const override
+	const void* getObjectPtr() const override
 	{
-		std::hash<std::string> hasher;
+		return nullptr;
+	}
 
-		size_t hashSum = 0;
-		hashSum += hasher(static_cast<char*>(static_cast<void*>(_function)));
-		return hashSum;
+	const std::string getFunctionPtr() const override
+	{
+		return std::string(static_cast<const char*>(static_cast<const void*>(&_function)));
 	}
 
 private:
@@ -49,14 +58,14 @@ public:
 		_object(object)
 	{	};
 
-	size_t getHash() const override
+	const void* getObjectPtr() const override
 	{
-		std::hash<std::string> hasher;
+		return static_cast<const void*>(_object);
+	}
 
-		size_t hashSum = 0;
-		hashSum += hasher(static_cast<char*>(static_cast<void*>(_object)));
-		hashSum += hasher(static_cast<const char*>(static_cast<const void*>(&_function)));
-		return hashSum;
+	const std::string getFunctionPtr() const override
+	{
+		return std::string(static_cast<const char*>(static_cast<const void*>(&_function)));
 	}
 
 private:
@@ -91,18 +100,12 @@ public:
 	template<class TObject>
 	void detach(void (TObject::* function) (TArgs...), TObject* object)
 	{
-		_invocables.remove_if([function, object](const TIInvocablePtr& invocable)
-			{
-				return invocable->getHash() == InvocableMember<TObject, TArgs...>(function, object).getHash();
-			});
+		removeInvocable(InvocableMember<TObject, TArgs...>(function, object));
 	}
 
 	void detach(void (*function) (TArgs...))
 	{
-		_invocables.remove_if([function](const TIInvocablePtr& invocable)
-			{
-				return invocable->getHash() == InvocableStaticFunction<TArgs...>(function).getHash();
-			});
+		removeInvocable(InvocableStaticFunction<TArgs...>(function));
 	}
 
 	void operator()(TArgs&&... args)
@@ -113,4 +116,16 @@ public:
 
 private:
 	std::list<TIInvocablePtr> _invocables;
+
+	void removeInvocable(const IInvocable<TArgs...>& removable)
+	{
+		for(auto it = _invocables.begin(); it != _invocables.end(); ++it)
+		{
+			if (*(*(it)) == removable)
+			{
+				_invocables.erase(it);
+				break;
+			}
+		}
+	}
 };
